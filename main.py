@@ -15,7 +15,7 @@ MONGODB_CONNECTION_STRING = os.getenv("MONGODB_CONNECTION_STRING")
 
 # Connect to MongoDB Atlas
 client = AsyncIOMotorClient(MONGODB_CONNECTION_STRING)
-db = client["multimedia_db"]
+db = client.get_database()
 
 # Model for player scores
 class PlayerScore(BaseModel):
