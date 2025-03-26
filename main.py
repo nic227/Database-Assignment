@@ -40,7 +40,7 @@ async def upload_sprite(file: UploadFile = File(...)):
             "content": encoded,
             "description": "Sprite uploaded via Base64"
         }
-        result = await db.sprites.insert_one(sprite_doc)
+        result = await db.Sprites.insert_one(sprite_doc)
         return {"message": "Sprite uploaded", "id": str(result.inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -60,7 +60,7 @@ async def upload_audio(file: UploadFile = File(...)):
             "content": encoded,
             "description": "Audio uploaded via Base64"
         }
-        result = await db.audio.insert_one(audio_doc)
+        result = await db.Audio.insert_one(audio_doc)
         return {"message": "Audio uploaded", "id": str(result.inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -74,7 +74,7 @@ async def upload_score(score: PlayerScore):
     try:
         db = get_db()  # Get fresh database instance
         score_doc = score.dict()
-        result = await db.scores.insert_one(score_doc)
+        result = await db.Scores.insert_one(score_doc)
         return {"message": "Score recorded", "id": str(result.inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
