@@ -81,3 +81,57 @@ async def upload_score(score: PlayerScore):
     finally:
         # Explicitly close connection (critical for Vercel)
         await shutdown_db()
+
+# Retrieve sprites
+@app.get("/get_sprites/", summary="Retrieve all uploaded sprites", response_description="List of sprite files")
+async def get_sprites():
+    try:
+        db = get_db()
+        sprite_cursor = db.Sprites.find()
+        sprites = []
+        async for sprite in sprite_cursor:
+            sprites.append({
+                "filename": sprite.get("filename"),
+                "description": sprite.get("description")
+            })
+        return {"sprites": sprites}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        await shutdown_db()
+
+# Retrieve audio files
+@app.get("/get_audio/", summary="Retrieve all uploaded audio files", response_description="List of audio files")
+async def get_audio():
+    try:
+        db = get_db()
+        audio_cursor = db.Audio.find()
+        audio_files = []
+        async for audio in audio_cursor:
+            audio_files.append({
+                "filename": audio.get("filename"),
+                "description": audio.get("description")
+            })
+        return {"audio": audio_files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        await shutdown_db()
+
+# Retrieve player score
+@app.get("/get_scores/", summary="Retrieve all player scores", response_description="List of player scores")
+async def get_scores():
+    try:
+        db = get_db()
+        scores_cursor = db.Scores.find()
+        scores = []
+        async for score in scores_cursor:
+            scores.append({
+                "player_name": score.get("player_name"),
+                "score": score.get("score")
+            })
+        return {"scores": scores}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        await shutdown_db()
