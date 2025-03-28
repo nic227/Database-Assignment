@@ -1,137 +1,172 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
+from typing import Annotated
 from motor.motor_asyncio import AsyncIOMotorClient
 import base64
 import os
+import re
 from dotenv import load_dotenv
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
 app = FastAPI()
 
-
-# Initialize MongoDB connection (only when needed)
+# Initialise MongoDB connection only when needed
 def get_db():
     client = AsyncIOMotorClient(os.getenv("MONGODB_CONNECTION_STRING"))
     return client.get_database()
 
-# Close connection during app shutdown
-@app.on_event("shutdown")
+# Close MongoDB connection
 async def shutdown_db():
     client = AsyncIOMotorClient(os.getenv("MONGODB_CONNECTION_STRING"))
     client.close()
-    
 
-# Model for player scores
 class PlayerScore(BaseModel):
-    player_name: str
+    player_name: Annotated[
+        str, 
+        StringConstraints(
+            pattern=r"^[a-zA-Z0-9_ ]+$", 
+            min_length=1, 
+            max_length=50
+        )
+    ] = Field(strict=True)
     score: int
 
-# Upload sprite (Base64)
+def sanitize_input(input_str: str) -> str:
+    # Remove special characters that could enable NoSQL injection
+    return re.sub(r"[^\w\s]", "", input_str).strip()
+
+# ==== File Upload Security ==== #
+ALLOWED_SPRITE_TYPES = ["image/png", "image/jpeg"]
+ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav"]
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+# ==== Upload Endpoints ==== #
 @app.post("/upload_sprite/", summary="Upload a sprite image", response_description="ID of the uploaded sprite")
 async def upload_sprite(file: UploadFile = File(...)):
     try:
-        db = get_db()  # Get fresh database instance
+        db = get_db()
+        # Task 4c: File validation
+        if file.content_type not in ALLOWED_SPRITE_TYPES:
+            raise HTTPException(400, "Only PNG/JPEG images allowed")
+
         content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(400, "File exceeds 5MB limit")
+
+        # Sanitize filename
+        clean_filename = sanitize_input(file.filename)
+        
         encoded = base64.b64encode(content).decode("utf-8")
         sprite_doc = {
-            "filename": file.filename,
+            "filename": clean_filename,
             "content": encoded,
             "description": "Sprite uploaded via Base64"
         }
         result = await db.Sprites.insert_one(sprite_doc)
         return {"message": "Sprite uploaded", "id": str(result.inserted_id)}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Server error: {str(e)}")
     finally:
-        # Explicitly close connection (critical for Vercel)
         await shutdown_db()
 
-# Upload audio (Base64)
 @app.post("/upload_audio/", summary="Upload an audio file", response_description="ID of the uploaded audio")
 async def upload_audio(file: UploadFile = File(...)):
     try:
-        db = get_db()  # Get fresh database instance
+        db = get_db()
+        if file.content_type not in ALLOWED_AUDIO_TYPES:
+            raise HTTPException(400, "Only MP3/WAV audio allowed")
+
         content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(400, "File exceeds 5MB limit")
+
+        clean_filename = sanitize_input(file.filename)
+        
         encoded = base64.b64encode(content).decode("utf-8")
         audio_doc = {
-            "filename": file.filename,
+            "filename": clean_filename,
             "content": encoded,
             "description": "Audio uploaded via Base64"
         }
         result = await db.Audio.insert_one(audio_doc)
         return {"message": "Audio uploaded", "id": str(result.inserted_id)}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Server error: {str(e)}")
     finally:
-        # Explicitly close connection (critical for Vercel)
         await shutdown_db()
 
-# Upload player score
 @app.post("/upload_score/", summary="Submit a player score", response_description="ID of the recorded score")
 async def upload_score(score: PlayerScore):
     try:
-        db = get_db()  # Get fresh database instance
-        score_doc = score.dict()
+        db = get_db()
+        sanitized_name = sanitize_input(score.player_name)
+        
+        score_doc = {
+            "player_name": sanitized_name,
+            "score": score.score
+        }
         result = await db.Scores.insert_one(score_doc)
         return {"message": "Score recorded", "id": str(result.inserted_id)}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Server error: {str(e)}")
     finally:
-        # Explicitly close connection (critical for Vercel)
         await shutdown_db()
 
-# Retrieve sprites
-@app.get("/get_sprites/", summary="Retrieve all uploaded sprites", response_description="List of sprite files")
+
+# ==== Retrieval Endpoints ==== #
+
+@app.get("/get_sprites/")
 async def get_sprites():
     try:
         db = get_db()
-        sprite_cursor = db.Sprites.find()
-        sprites = []
-        async for sprite in sprite_cursor:
-            sprites.append({
-                "filename": sprite.get("filename"),
-                "description": sprite.get("description")
+        cursor = db.Sprites.find()
+        data = []
+        async for doc in cursor:
+            data.append({
+                "filename": doc.get("filename"),
+                "description": doc.get("description")
             })
-        return {"sprites": sprites}
+        return {"sprites": data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
 
-# Retrieve audio files
-@app.get("/get_audio/", summary="Retrieve all uploaded audio files", response_description="List of audio files")
+@app.get("/get_audio/")
 async def get_audio():
     try:
         db = get_db()
-        audio_cursor = db.Audio.find()
-        audio_files = []
-        async for audio in audio_cursor:
-            audio_files.append({
-                "filename": audio.get("filename"),
-                "description": audio.get("description")
+        cursor = db.Audio.find()
+        data = []
+        async for doc in cursor:
+            data.append({
+                "filename": doc.get("filename"),
+                "description": doc.get("description")
             })
-        return {"audio": audio_files}
+        return {"audio": data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
 
-# Retrieve player score
-@app.get("/get_scores/", summary="Retrieve all player scores", response_description="List of player scores")
+@app.get("/get_scores/")
 async def get_scores():
     try:
         db = get_db()
-        scores_cursor = db.Scores.find()
-        scores = []
-        async for score in scores_cursor:
-            scores.append({
-                "player_name": score.get("player_name"),
-                "score": score.get("score")
+        cursor = db.Scores.find()
+        data = []
+        async for doc in cursor:
+            data.append({
+                "player_name": doc.get("player_name"),
+                "score": doc.get("score")
             })
-        return {"scores": scores}
+        return {"scores": data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
