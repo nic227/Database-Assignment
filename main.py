@@ -1,13 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel, Field, constr
+from pydantic import BaseModel, Field, StringConstraints
+from typing import Annotated
 from motor.motor_asyncio import AsyncIOMotorClient
 import base64
 import os
 import re
 from dotenv import load_dotenv
 
-
-# Load environment variables from .env (for MongoDB connection string)
+# Load environment variables
 load_dotenv()
 
 # Create FastAPI instance
@@ -28,23 +28,27 @@ async def shutdown_db():
 # ========== Input Model and Validation ========== #
 
 #Pydantic model for player score with validation
+ # Player name: must be 1-50 characters long, allow only alphanumeric characters, spaces and understores
 class PlayerScore(BaseModel):
-    # Player name: must be 1-50 characters long, allow only alphanumeric characters, spaces and understores
-    player_name: constr= Field(strict=True, min_length=1, max_length=50, regex=r"^[a-zA-Z0-9_ ]+$")
-    score: int # Score must be an integer
-
+    player_name: Annotated[
+        str, 
+        StringConstraints(
+            pattern=r"^[a-zA-Z0-9_ ]+$", 
+            min_length=1, 
+            max_length=50
+        )
+    ] = Field(strict=True)
+    score: int  # Score must be an integer
 
 def sanitize_input(input_str: str) -> str:
     # Remove special characters that could enable NoSQL injection
     return re.sub(r"[^\w\s]", "", input_str).strip()
-
 
 # ==== File Upload Security ==== #
 # Allowed file types and size limits
 ALLOWED_SPRITE_TYPES = ["image/png", "image/jpeg"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav"]
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-
 
 # ==== Upload Endpoints ==== #
 
@@ -58,7 +62,7 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 async def upload_sprite(file: UploadFile = File(...)):
     try:
         db = get_db()
-        # Check file type
+         # Check file type
         if file.content_type not in ALLOWED_SPRITE_TYPES:
             raise HTTPException(400, "Only PNG/JPEG images allowed")
 
@@ -87,8 +91,6 @@ async def upload_sprite(file: UploadFile = File(...)):
     finally:
         await shutdown_db() # Ensure connection is closed
 
-
-
 # This POST endpoint is used to upload an audio file.
 # 1. It accepts an audio file (only MP3 or WAV).
 # 2. Validates content type and file size just like the sprite upload.
@@ -108,10 +110,10 @@ async def upload_audio(file: UploadFile = File(...)):
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(400, "File exceeds 5MB limit")
 
-        # Sanitize filename before storing
+        # Sanitize filname before storing
         clean_filename = sanitize_input(file.filename)
         
-        # Convert to Base64 and insert into Audio collection
+        # Convert to Base65 and insert into Audio collection
         encoded = base64.b64encode(content).decode("utf-8")
         audio_doc = {
             "filename": clean_filename,
@@ -125,8 +127,6 @@ async def upload_audio(file: UploadFile = File(...)):
         raise HTTPException(500, f"Server error: {str(e)}")
     finally:
         await shutdown_db()
-
-
 
 #This POST endpoint allows players to submit their name and score.
 # 1. It uses a Pydantic model (PlayerScore) to validate inputs:
@@ -157,7 +157,6 @@ async def upload_score(score: PlayerScore):
 
 # ==== Retrieval Endpoints ==== #
 
-
 # This GET endpoint retrieves all uploaded sprite images from MongoDB.
 # 1. It connects to the 'Sprites' collection and fetches all documents.
 # 2. For each sprite, only the filename and description are returned (Base64 content is not shown).
@@ -179,7 +178,6 @@ async def get_sprites():
         raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
-
 
 # This GET endpoint retrieves all audio files stored in the database.
 # 1. It connects to the 'Audio' collection and gets all documents.
@@ -203,8 +201,10 @@ async def get_audio():
     finally:
         await shutdown_db()
 
-
-
+# This GET endpoint returns all recorded player scores.
+# 1. It connects to the 'Scores' collection in MongoDB.
+# 2. Fetches all player score documents and returns them.
+# 3. Each score includes the player's sanitized name and score value.
 @app.get("/get_scores/")
 async def get_scores():
     try:
@@ -222,3 +222,5 @@ async def get_scores():
         raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
+
+        
