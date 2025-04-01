@@ -222,5 +222,3 @@ async def get_scores():
         raise HTTPException(500, f"Error: {str(e)}")
     finally:
         await shutdown_db()
-
-        
